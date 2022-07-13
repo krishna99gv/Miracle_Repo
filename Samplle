@@ -1,0 +1,115 @@
+public class AwsFileSystem {
+
+private int id;
+private String attType;
+private String name;
+private String path;
+private String extention;
+private int createdBy;
+private String createdDate;
+private int size;
+}
+
+
+
+
+@PostMapping(value = "/attachment/upload/{objectId}/{attType}")
+public Map<String, Object> uploadAttachment(@PathVariable int objectId, @PathVariable String attType,
+@RequestParam MultipartFile file) {
+String date = new SimpleDateFormat("yyyyMM").format(new java.util.Date());
+String path = "/" + attType + "/" + date + "/" + objectId + "/" + file.getOriginalFilename();
+return awsFileSystemDao.uploadAttachment(file, path);
+}
+
+
+
+
+public Map<String, Object> uploadAttachment(MultipartFile multipartFile, String path) {
+logger.info("Entered into uploadAttachment method of S3Utility");
+
+Map<String, Object> fileData = new HashMap<>();
+Map<String, Object> response = new HashMap<>();
+response.put(res, false);
+response.put(msg, defaultMsg);
+try {
+
+AmazonS3 s3client = AmazonS3ClientBuilder.defaultClient();
+String bucketName = "uat-attachments1";
+java.io.InputStream is = multipartFile.getInputStream();
+s3client.putObject(new PutObjectRequest(bucketName, bucketName, is, new ObjectMetadata()));
+response.put(res, true);
+response.put(msg, "Succesfully uploaded the attachment.");
+long fileSizeInKB = multipartFile.getSize() / 1024;
+response.put("fileSize", fileSizeInKB);
+response.put("path", path);
+response.put("data", fileData);
+response.put(res, true);
+} catch (AmazonServiceException e) {
+logger.error("Error has occured in uploadAttachment {}", e.getMessage());
+} catch (SdkClientException e) {
+logger.error("Error has occured in uploadAttachment {}", e.getMessage());
+} catch (Exception e) {
+logger.error("Error has occured in uploadAttachment {}", e.getMessage());
+}
+logger.info("uploadAttachment method ended");
+return response;
+}
+
+/////////////////////////////////
+
+public class AwsFileSystemDao {
+@Autowired
+JdbcTemplate jdbcTemplate;
+
+@Autowired
+S3Utility s3Utility;
+
+@Autowired
+MoveMultipleFilesIntoAws moveMultipleFilesIntoAws;
+
+private Path root;
+
+public Map<String, Object> insertAttachment(Map<String, Object> dataMap) {
+Map<String, Object> response = new HashMap<String, Object>();
+int result = 0;
+String attType = dataMap.get("attType").toString();
+String name = dataMap.get("name").toString();
+String path = dataMap.get("s3Filepath").toString();
+long size = (long) dataMap.get("size");
+String extention = dataMap.get("extention").toString();
+try {
+String insertAttachments = "INSERT into attachments(att_type,name,path,size,extention) VALUES (?,?,?,?,?)";
+result = jdbcTemplate.update(insertAttachments, attType, name, path, size, extention);
+if (result > 0) {
+response.put("success", true);
+response.put("message", "Attachment inserted successfully");
+}
+
+else {
+response.put("success", false);
+response.put("message", "Oops something went wrong! please try again");
+}
+} catch (Exception e) {
+e.printStackTrace();
+}
+return response;
+}
+
+public Map<String, Object> uploadAttachment(MultipartFile file, String path) {
+Map<String, Object> response = s3Utility.uploadAttachment(file, path);
+//System.out.println("123" + response);
+String name = file.getName();
+char attType = path.charAt(1);
+long size = (long) response.get("fileSize");
+String s3Filepath = (String) response.get("path");
+Map<String, Object> dataMap = new HashMap<>();
+dataMap.put("name", name);
+dataMap.put("attType", attType);
+dataMap.put("size", size);
+dataMap.put("s3Filepath", s3Filepath);
+String extention = FilenameUtils.getExtension(path);
+dataMap.put("extention", extention);
+insertAttachment(dataMap);
+return response;
+}
+
